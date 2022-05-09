@@ -1,524 +1,364 @@
 ﻿// OpenCVApplication.cpp : Defines the entry point for the console application.
 //
-#include <opencv2/highgui.hpp>
+
 #include "stdafx.h"
 #include "common.h"
+#include <queue>
+#include<vector>
+#include <string>
 
-////// nuclee de convolutie 
+int hVec[2] = { 1, -1 };
 
-int H[] = { 1, -1 };
-int G[] = { 1, 1 };
 
-void testOpenImage()
+
+std::vector<int> getLowVector(std::vector<int> fullVector)
 {
-	char fname[MAX_PATH];
-	while (openFileDlg(fname))
+	std::vector<int> v;
+	int iStop = fullVector.size() / 2;
+	for (int i = 0; i < iStop; i++)
 	{
-		Mat src;
-		src = imread(fname);
-		imshow("opened image", src);
-		waitKey();
+		float s = fullVector.at(2 * i) + fullVector.at(2 * i + 1);
+		v.push_back(s / 2);
 	}
+
+	return v;
 }
 
-void testOpenImagesFld()
+std::vector<int> getHighVector(std::vector<int> fullVector)
 {
-	char folderName[MAX_PATH];
-	if (openFolderDlg(folderName) == 0)
-		return;
-	char fname[MAX_PATH];
-	FileGetter fg(folderName, "bmp");
-	while (fg.getNextAbsFile(fname))
+	std::vector<int> v;
+	int iStop = fullVector.size() / 2;
+	for (int i = 0; i < iStop; i++)
 	{
-		Mat src;
-		src = imread(fname);
-		imshow(fg.getFoundFileName(), src);
-		if (waitKey() == 27) //ESC pressed
-			break;
+		float s = fullVector.at(2 * i) - fullVector.at(2 * i + 1);
+		v.push_back(s / 2);
 	}
+
+	return v;
 }
-
-void testColor2Gray()
-{
-	char fname[MAX_PATH];
-	while (openFileDlg(fname))
+Mat_<int> coef_to_0(Mat_<int> img, int th) {
+	Mat_<int> dst(img.rows, img.cols);
+	for (int i = 0; i < img.rows; i++)
 	{
-		Mat_<Vec3b> src = imread(fname, IMREAD_COLOR);
+		for (int j = 0; j < img.cols; j++) {
+			if (abs(img(i, j)) < th) {
+				dst(i, j) = 0;
 
-		int height = src.rows;
-		int width = src.cols;
-
-		Mat_<uchar> dst(height, width);
-
-		for (int i = 0; i < height; i++)
-		{
-			for (int j = 0; j < width; j++)
-			{
-				Vec3b v3 = src(i, j);
-				uchar b = v3[0];
-				uchar g = v3[1];
-				uchar r = v3[2];
-				dst(i, j) = (r + g + b) / 3;
+			}
+			else {
+				dst(i, j) = img(i, j);
 			}
 		}
-
-		imshow("original image", src);
-		imshow("gray image", dst);
-		waitKey();
 	}
+	return dst;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// Wavelet grupa 10B
-///////////////////////////////////////////////////////////////////////////////
 
-int* convert2Dto1D(Mat_<uchar> mat)
+// res -> (original - reconstruction) * 10 + 128
+Mat_<uchar> computeDifference(Mat_<uchar> original, Mat_<uchar> reconstruction)
 {
-	int* arr = (int*)malloc(sizeof(int) * mat.rows * mat.cols);
-	int index = 0;
-
-	for (int i = 0; i < mat.rows; i++)
-	{
-		for (int j = 0; j < mat.cols; j++)
-		{
-			arr[index++] = mat(i, j);
+	int rows = original.rows;
+	int cols = original.cols;
+	Mat_<uchar> res = Mat_<uchar>(rows, cols);
+	for (int i = 0; i < original.rows; i++) {
+		for (int j = 0; j < original.cols; j++) {
+			res(i, j) = (original(i, j) - reconstruction(i, j)) * 10 + 128;
 		}
 	}
-
-	return arr;
+	//res = res * 10 + 128;
+	return res;
 }
 
-int* getLow(int* array1D, int length)
+std::vector<Mat_<int>> divideIntoFour(Mat_<int> originalImage)
 {
-	int* low = (int*)malloc(sizeof(int) * (length / 2));
-	for (int i = 0; i < length / 2; i++)
+	std::vector<Mat_<int>> results;
+	int rows = originalImage.rows;
+	int cols = originalImage.cols;
+
+	Mat_<float> l = Mat_<int>(rows / 2, cols);
+	Mat_<float> h = Mat_<int>(rows / 2, cols);
+
+	for (int c = 0; c < cols; c++)
 	{
-		low[i] = (float)(1.0 / 2) * (array1D[i * 2] + array1D[i * 2 + 1]);
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int r = 0; r < rows; r++)
+		{
+			half1Low.push_back(originalImage(r, c));
+			half1High.push_back(originalImage(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+		for (int r = 0; r < half1Low.size(); r++)
+		{
+			l(r, c) = half1Low.at(r);
+			h(r, c) = half1High.at(r);
+		}
 	}
-	return low;
+
+	Mat_<float> ll = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> lh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> hl = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> hh = Mat_<int>(rows / 2, cols / 2, 255);
+
+	for (int r = 0; r < rows / 2; r++)
+	{
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int c = 0; c < cols; c++)
+		{
+			half1Low.push_back(l(r, c));
+			half1High.push_back(l(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+
+		for (int c = 0; c < half1Low.size(); c++)
+		{
+			ll(r, c) = half1Low.at(c);
+			lh(r, c) = half1High.at(c);
+		}
+	}
+
+	for (int r = 0; r < rows / 2; r++)
+	{
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int c = 0; c < cols; c++)
+		{
+			half1Low.push_back(h(r, c));
+			half1High.push_back(h(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+		for (int c = 0; c < half1Low.size(); c++)
+		{
+			hl(r, c) = half1Low.at(c);
+			hh(r, c) = half1High.at(c);
+		}
+	}
+	Mat_<float> afisLLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisLHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisHLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisHHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+
+
+
+	results.push_back(ll);
+	results.push_back(lh);
+	results.push_back(hl);
+	results.push_back(hh);
+
+	return results;
 }
 
-int* getHigh(int* array1D, int length)
+
+std::vector<Mat_<int>> divideIntoFourwithTh(Mat_<int> originalImage, int th)
 {
-	int* high = (int*)malloc(sizeof(int) * (length / 2));
-	for (int i = 0; i < length / 2; i++)
+	std::vector<Mat_<int>> results;
+	int rows = originalImage.rows;
+	int cols = originalImage.cols;
+
+	Mat_<float> l = Mat_<int>(rows / 2, cols);
+	Mat_<float> h = Mat_<int>(rows / 2, cols);
+
+	for (int c = 0; c < cols; c++)
 	{
-		high[i] = (float)(1.0 / 2) * (array1D[i * 2] - array1D[i * 2 + 1]);
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int r = 0; r < rows; r++)
+		{
+			half1Low.push_back(originalImage(r, c));
+			half1High.push_back(originalImage(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+		for (int r = 0; r < half1Low.size(); r++)
+		{
+			l(r, c) = half1Low.at(r);
+			h(r, c) = half1High.at(r);
+		}
 	}
-	return high;
+
+	Mat_<float> ll = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> lh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> hl = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> hh = Mat_<int>(rows / 2, cols / 2, 255);
+
+	for (int r = 0; r < rows / 2; r++)
+	{
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int c = 0; c < cols; c++)
+		{
+			half1Low.push_back(l(r, c));
+			half1High.push_back(l(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+
+		for (int c = 0; c < half1Low.size(); c++)
+		{
+			ll(r, c) = half1Low.at(c);
+			lh(r, c) = half1High.at(c);
+		}
+	}
+
+	for (int r = 0; r < rows / 2; r++)
+	{
+		std::vector<int> half1Low;
+		std::vector<int> half1High;
+		for (int c = 0; c < cols; c++)
+		{
+			half1Low.push_back(h(r, c));
+			half1High.push_back(h(r, c));
+		}
+
+		half1Low = getLowVector(half1Low);
+
+		half1High = getHighVector(half1High);
+
+		for (int c = 0; c < half1Low.size(); c++)
+		{
+			hl(r, c) = half1Low.at(c);
+			hh(r, c) = half1High.at(c);
+		}
+	}
+	Mat_<float> afisLLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisLHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisHLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<float> afisHHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
+
+
+
+	afisHHmatTh = coef_to_0(hh, th);
+	afisLHmatTh = coef_to_0(lh, th);
+	afisHLmatTh = coef_to_0(hl, th);
+
+	results.push_back(ll);
+	results.push_back(afisLHmatTh);
+	results.push_back(afisHLmatTh);
+	results.push_back(afisHHmatTh);
+
+
+	return results;
 }
 
-int* getHighSample(int* high, int length)
+std::vector<int> getLow_USample(std::vector<int> vector_low)
 {
-	int* highSample = (int*)malloc(sizeof(int) * (length));
-	for (int i = 0; i < length; i++)
+	std::vector<int> low_usample;
+	int stop = 2 * vector_low.size();
+	for (int k = 0; k < stop; k++)
 	{
-		highSample[i] = high[i / 2] * H[i % 2];
+		low_usample.push_back(vector_low.at(k / 2));
 	}
-	return highSample;
+	return low_usample;
 }
 
-int* getLowSample(int* low, int length)
+std::vector<int> getHigh_USample(std::vector<int> vector_high)
 {
-	int* lowSample = (int*)malloc(sizeof(int) * (length));
-	for (int i = 0; i < length; i++)
+	std::vector<int> high_usample;
+	int stop = 2 * vector_high.size();
+	for (int k = 0; k < stop; k++)
 	{
-		lowSample[i] = low[i / 2];
+		high_usample.push_back(vector_high.at(k / 2) * hVec[k % 2]);
 	}
-	return lowSample;
+	return high_usample;
 }
 
-int* getUpSample(int* highSample, int* lowSample, int length)
+Mat_<uchar> reconstructImage(Mat_<int> ll, Mat_<int> lh, Mat_<int> hl, Mat_<int> hh)
 {
-	int* upSample = (int*)malloc(sizeof(int) * (length));
-	for (int i = 0; i < length; i++)
+	int rows = ll.rows;
+	int cols = ll.cols;
+	Mat_<int> l = Mat_<int>(rows, cols * 2);
+	Mat_<int> h = Mat_<int>(rows, cols * 2);
+	for (int r = 0; r < rows; r++)
 	{
-		upSample[i] = lowSample[i] + highSample[i];
-	}
-	return upSample;
-}
+		std::vector<int> vector_low;
+		std::vector<int> vector_high;
+		for (int c = 0; c < cols; c++)
+		{
+			vector_low.push_back(ll(r, c));
+			vector_high.push_back(lh(r, c));
+		}
 
-void print(int* array, int length)
-{
-	for (int i = 0; i < length; i++)
+		std::vector<int> low_usample = getLow_USample(vector_low);
+		std::vector<int> high_usample = getHigh_USample(vector_high);
+		for (int c = 0; c < low_usample.size(); c++)
+		{
+			l(r, c) = low_usample.at(c) + high_usample.at(c);
+		}
+	}
+
+	for (int r = 0; r < rows; r++)
 	{
-		printf("%d ", array[i]);
-	}
-}
+		std::vector<int> vector_low;
+		std::vector<int> vector_high;
+		for (int c = 0; c < cols; c++)
+		{
+			vector_low.push_back(hl(r, c));
+			vector_high.push_back(hh(r, c));
+		}
 
-int* concat(int* lowUpSample, int* highUpSample, int length)
-{
-	int* upSample = (int*)malloc(sizeof(int) * (length * 2));
-	int index = 0;
-	for (int i = 0; i < length; i++)
+		std::vector<int> low_usample = getLow_USample(vector_low);
+		std::vector<int> high_usample = getHigh_USample(vector_high);
+
+		for (int c = 0; c < low_usample.size(); c++)
+		{
+			h(r, c) = low_usample.at(c) + high_usample.at(c);
+		}
+	}
+
+	Mat_<uchar> reconstructedImage = Mat_<int>(2 * rows, 2 * cols);
+	for (int c = 0; c < 2 * cols; c++)
 	{
-		upSample[index++] = highUpSample[i];
+		std::vector<int> vector_low;
+		std::vector<int> vector_high;
+		for (int r = 0; r < rows; r++)
+		{
+			vector_low.push_back(l(r, c));
+			vector_high.push_back(h(r, c));
+		}
+
+		std::vector<int> low_usample = getLow_USample(vector_low);
+		std::vector<int> high_usample = getHigh_USample(vector_high);
+
+		for (int r = 0; r < low_usample.size(); r++)
+		{
+			reconstructedImage(r, c) = low_usample.at(r) + high_usample.at(r);
+		}
 	}
-	for (int i = 0; i < length; i++)
-	{
-		upSample[index++] = lowUpSample[i];
-	}
-	return upSample;
-}
 
-void testWavelet()
-{
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat_<uchar> img = imread(fname, IMREAD_GRAYSCALE);
-
-	int array[] = { 9,7,3,5,6,10,2,6 };
-	int n = 8;
-	int* high = getHigh(array, n);
-	int* low = getLow(array, n);
-
-	int* highSample = getHighSample(high, n);
-	int* lowSample = getLowSample(low, n);
-
-	printf("\nTest Vector : ");
-	print(array, n);
-
-	printf("\n\n");
-	printf("Primul nivel : ");
-
-	printf("\nHigh : ");
-	print(high, n / 2);
-	printf("\nLow : ");
-	print(low, n / 2);
-
-	printf("\nHigh Sample : ");
-	print(highSample, n);
-	printf("\nLow Sample : ");
-	print(lowSample, n);
-
-	int* upSample = getUpSample(highSample, lowSample, n);
-	printf("\nUpSample : ");
-	print(upSample, n);
-
-	printf("\n\n");
-	printf("Al doilea nivel : ");
-
-	int* high2_high = getHigh(high, n / 2);
-	int* low2_high = getLow(high, n / 2);
-
-	int* high2_low = getHigh(low, n / 2);
-	int* low2_low = getLow(low, n / 2);
-
-	printf("\nHigh2 High : ");
-	print(high2_high, n / 4);
-	printf("\nLow2 High : ");
-	print(low2_high, n / 4);
-	printf("\nHigh2 Low : ");
-	print(high2_low, n / 4);
-	printf("\nLow2 Low : ");
-	print(low2_low, n / 4);
-
-	int* high2_highSample = getHighSample(high2_high, n / 2);
-	int* low2_highSample = getLowSample(low2_high, n / 2);
-	int* high2_lowSample = getHighSample(high2_low, n / 2);
-	int* low2_lowSample = getLowSample(low2_low, n / 2);
-
-	printf("\nHigh2 High Sample : ");
-	print(high2_highSample, n / 2);
-	printf("\nLow2 High Sample : ");
-	print(low2_highSample, n / 2);
-	printf("\nHigh2 Low Sample : ");
-	print(high2_lowSample, n / 2);
-	printf("\nLow2 Low Sample : ");
-	print(low2_lowSample, n / 2);
-
-	int* upSampleHigh2 = getUpSample(high2_highSample, low2_highSample, n / 2);
-	int* upSampleLow2 = getUpSample(high2_lowSample, low2_lowSample, n / 2);
-	int* upSample2 = concat(upSampleHigh2, upSampleLow2, n / 2);
-
-	printf("\nLow2 Up Sample : ");
-	print(upSampleLow2, n / 2);
-	printf("\nHigh2 Up Sample : ");
-	print(upSampleHigh2, n / 2);
-	printf("\nUp Sample : ");
-	print(upSample2, n);
-
-	imshow("Test Image", img);
-	waitKey();
-}
-
-void wavelet1D()
-{
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat_<uchar> img = imread(fname, IMREAD_GRAYSCALE);
-
-	int* array = convert2Dto1D(img);
-	int n = img.rows * img.cols;
-
-	int* high = getHigh(array, n);
-	int* low = getLow(array, n);
-
-	int* highSample = getHighSample(high, n);
-	int* lowSample = getLowSample(low, n);
-
-	int* upSample = getUpSample(highSample, lowSample, n);
-
-	int* high2_high = getHigh(high, n / 2);
-	int* low2_high = getLow(high, n / 2);
-
-	int* high2_low = getHigh(low, n / 2);
-	int* low2_low = getLow(low, n / 2);
-
-	int* high2_highSample = getHighSample(high2_high, n / 2);
-	int* low2_highSample = getLowSample(low2_high, n / 2);
-	int* high2_lowSample = getHighSample(high2_low, n / 2);
-	int* low2_lowSample = getLowSample(low2_low, n / 2);
-
-	int* upSampleHigh2 = getUpSample(high2_highSample, low2_highSample, n / 2);
-	int* upSampleLow2 = getUpSample(high2_lowSample, low2_lowSample, n / 2);
-	int* upSample2 = concat(upSampleHigh2, upSampleLow2, n / 2);
-
-	imshow("Test Image", img);
-	waitKey();
-}
-
-Mat_<int> LL(Mat_<int> img)
-{
-	int contor = 0;
-	Mat_<int> dest = Mat_<int>(img.rows, img.cols / 2);
-	Mat_<int> LL = Mat_<int>(img.rows / 2, img.cols / 2);
-	for (int j = 0; j < img.rows; j++)
-	{
-		int* k = (int*)malloc(sizeof(int) * img.cols);
-		for (int i = 0; i < img.cols; i++)
-		{
-			k[i] = img(j, i);
-		}
-		int* k1 = getLow(k, img.cols);
-		for (int i = 0; i < img.cols / 2; i++)
-		{
-			dest(contor, i) = k1[i];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	contor = 0;
-	for (int i = 0; i < dest.cols; i++)
-	{
-		int* k = (int*)malloc(sizeof(int) * dest.rows);
-		for (int j = 0; j < dest.rows; j++)
-		{
-			k[j] = dest(j, i);
-		}
-		int* k1 = getLow(k, dest.rows);
-		for (int r = 0; r < dest.rows / 2; r++)
-		{
-			LL(r, contor) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	return LL;
-}
-
-Mat_<int> HH(Mat_<int> img)
-{
-	int contor = 0;
-	Mat_<int> dest = Mat_<int>(img.rows, img.cols / 2);
-	Mat_<int> HH = Mat_<int>(img.rows / 2, img.cols / 2);
-	for (int j = 0; j < img.rows; j++)
-	{
-		int* k = (int*)malloc(sizeof(int) * img.cols);
-		for (int i = 0; i < img.cols; i++)
-		{
-			k[i] = img(j, i);
-		}
-		int* k1 = getHigh(k, img.cols);
-		for (int r = 0; r < img.cols / 2; r++)
-		{
-			dest(contor, r) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	contor = 0;
-	for (int i = 0; i < dest.cols; i++)
-	{
-		int* k = (int*)malloc(sizeof(int) * dest.rows);
-		for (int j = 0; j < dest.rows; j++)
-		{
-			k[j] = dest(j, i);
-		}
-		int* k1 = getHigh(k, dest.rows);
-		for (int r = 0; r < dest.rows / 2; r++)
-		{
-			HH(r, contor) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	return HH;
-}
-Mat_<int> LH(Mat_<int> img)
-{
-	int contor = 0;
-	Mat_<int> dest = Mat_<int>(img.rows, img.cols / 2);
-	Mat_<int> LH = Mat_<int>(img.rows / 2, img.cols / 2);
-	for (int j = 0; j < img.rows; j++)
-	{
-		int* k = (int*)malloc(sizeof(int) * img.cols);
-		for (int i = 0; i < img.cols; i++)
-		{
-			k[i] = img(j, i);
-		}
-		int* k1 = getLow(k, img.cols);
-		for (int r = 0; r < img.cols / 2; r++)
-		{
-			dest(contor, r) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	contor = 0;
-	for (int i = 0; i < dest.cols; i++)
-	{
-		int* k = (int*)malloc(sizeof(int) * dest.rows);
-		for (int j = 0; j < dest.rows; j++)
-		{
-			k[j] = dest(j, i);
-		}
-		int* k1 = getHigh(k, dest.rows);
-		for (int r = 0; r < dest.rows / 2; r++)
-		{
-			LH(r, contor) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	return LH;
-}
-
-Mat_<int> HL(Mat_<int> img)
-{
-	int contor = 0;
-	Mat_<int> dest = Mat_<int>(img.rows, img.cols / 2);
-	Mat_<int> HL = Mat_<int>(img.rows / 2, img.cols / 2);
-	for (int j = 0; j < img.rows; j++)
-	{
-		int* k = (int*)malloc(sizeof(int) * img.cols);
-		for (int i = 0; i < img.cols; i++)
-		{
-			k[i] = img(j, i);
-		}
-		int* k1 = getHigh(k, img.cols);
-		for (int r = 0; r < img.cols / 2; r++)
-		{
-			dest(contor, r) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	contor = 0;
-	for (int i = 0; i < dest.cols; i++)
-	{
-		int* k = (int*)malloc(sizeof(int) * dest.rows);
-		for (int j = 0; j < dest.rows; j++)
-		{
-			k[j] = dest(j, i);
-		}
-		int* k1 = getLow(k, dest.rows);
-		for (int r = 0; r < dest.rows / 2; r++)
-		{
-			HL(r, contor) = k1[r];
-		}
-		contor++;
-		free(k);
-		free(k1);
-	}
-	return HL;
+	return reconstructedImage;
 }
 
 
-Mat_<uchar> reconstructie_prelucrare(Mat_<int> imgLL, Mat_<int> imgLH, Mat_<int> imgHL, Mat_<int> imgHH)
-{
-	int contor = 0;
-	Mat_<int> L = Mat_<int>(imgLL.rows * 2, imgLL.cols);
-	Mat_<int> H = Mat_<int>(imgLL.rows * 2, imgLL.cols);
-	Mat_<uchar> rec = Mat_<int>(imgLL.rows * 2, imgLL.cols * 2);
-	for (int j = 0; j < imgLL.cols; j++)
-	{
-		int* kLL = (int*)malloc(sizeof(int) * imgLL.rows);
-		int* kLH = (int*)malloc(sizeof(int) * imgLL.rows);
-		for (int i = 0; i < imgLL.rows; i++)
-		{
-			kLL[i] = imgLL(i, j);
-			kLH[i] = imgLH(i, j);
-		}
-		int* k1 = getHighSample(kLH, imgLH.rows * 2);
-		int* k2 = getLowSample(kLL, imgLL.rows * 2);
-		for (int r = 0; r < L.rows; r++)
-		{
-			L(r, j) = k1[r] + k2[r];
-		}
-		contor++;
-		free(kLL);
-		free(kLH);
-		free(k1);
-		free(k2);
-	}
 
-	for (int j = 0; j < imgLL.cols; j++)
-	{
-		int* kHL = (int*)malloc(sizeof(int) * imgLL.rows);
-		int* kHH = (int*)malloc(sizeof(int) * imgLL.rows);
-		for (int i = 0; i < imgLL.rows; i++)
-		{
-			kHL[i] = imgHL(i, j);
-			kHH[i] = imgHH(i, j);
-		}
-		int* k1 = getLowSample(kHL, imgLH.rows * 2);
-		int* k2 = getHighSample(kHH, imgLL.rows * 2);
-		for (int r = 0; r < H.rows; r++)
-		{
-			H(r, j) = k1[r] + k2[r];
-		}
-		contor++;
-		free(kHL);
-		free(kHH);
-		free(k1);
-		free(k2);
-	}
+Mat_<uchar> combineImage(Mat_<uchar> ll, Mat_<uchar> lh, Mat_<uchar> hl, Mat_<uchar> hh) {
 
-	for (int i = 0; i < L.rows; i++)
-	{
-		int* kL = (int*)malloc(sizeof(int) * L.rows);
-		int* kH = (int*)malloc(sizeof(int) * L.rows);
-		for (int j = 0; j < L.cols; j++)
-		{
-			kL[j] = L(i, j);
-			kH[j] = H(i, j);
+	Mat_<uchar> result(ll.rows * 2, ll.cols * 2);
+	ll.copyTo(result(Rect(0, 0, ll.cols, ll.rows)));
+	lh.copyTo(result(Rect(lh.rows, 0, lh.cols, lh.rows)));
+	hl.copyTo(result(Rect(0, hl.rows, hl.cols, hl.rows)));
+	hh.copyTo(result(Rect(hh.rows, hh.cols, hh.cols, hh.rows)));
 
-		}
-		int* k1 = getLowSample(kL, L.rows * 2);
-		int* k2 = getHighSample(kH, H.rows * 2);
-		for (int r = 0; r < rec.cols; r++)
-		{
-			rec(i, r) = k1[r] + k2[r];
-		}
-		contor++;
-		free(kL);
-		free(kH);
-		free(k1);
-		free(k2);
-	}
-
-
-	return rec;
+	return result;
 }
-
 Mat_<uchar> add128(Mat_<int> src) {
 	Mat_<uchar> dst(src.rows, src.cols);
 
@@ -530,141 +370,259 @@ Mat_<uchar> add128(Mat_<int> src) {
 	return dst;
 }
 
-Mat_<uchar> coef_to_0(Mat_<uchar> img, int th) {
-	Mat_<uchar> dst(img.rows, img.cols);
-	for (int i = 0; i < img.rows; i++)
-	{
-		for (int j = 0; j < img.cols; j++) {
-			if (abs(img(i, j)) < th) {
-				dst(i, j) = 0;
-			}
-			else {
-				dst(i, j) = img(i, j);
-			}
+
+std::vector<Mat_<int>> recursiveDecomposition(Mat_<int> orig)
+{
+	std::vector<Mat_<int>> result;
+	Mat_<uchar> ll = orig.clone();
+
+	while (ll.rows > 2) {
+		std::vector<Mat_<int>> divFour = divideIntoFourwithTh(ll, 1);
+		ll = divFour.at(0).clone();
+		result.push_back(divFour.at(1));
+		result.push_back(divFour.at(2));
+		result.push_back(divFour.at(3));
+		if (ll.rows == 2) {
+			result.push_back(ll);
 		}
 	}
-	return dst;
+
+	return result;
 }
-//asta pas e fara vectori si fara modificarile facute acum
-void wavelet2D()
+
+// allDecompositions = [LH_128x128, HL_128x128, HH_128x128, LH_64x64, HL_64X64, HH_64X64, ...., LH_2X2, HL_2X2, HH_2X2, LL2x2] -> LL2x2 sa fie ultimul
+// LL_4x4 = reconstructImage(LL_2x2, LH_2x2, HL_2x2, HH_2x2)
+// ...
+// LL_2^n = reconstructImage(LL_2^(n - 1), LH_2^(n - 1), HL_2^(n - 1), HH_2^(n - 1))
+Mat_<int> recursiveReconstruction(std::vector<Mat_<int>> allDecompositions)
 {
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat img = imread(fname, IMREAD_GRAYSCALE);
-	Mat_<uchar> afisInitMat = Mat_<uchar>(img.rows, img.cols);
-	//afisInitMat = add128(img);
 
-	Mat_<int> LLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> LHmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> HLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> HHmat = Mat_<int>(img.rows / 2, img.cols / 2);
+	int sz = allDecompositions.size();
+	Mat_<int> ll = reconstructImage(allDecompositions.at(sz - 1), allDecompositions.at(sz - 4), allDecompositions.at(sz - 3), allDecompositions.at(sz - 2));
 
-	Mat_<uchar> Recmat = Mat_<uchar>(img.rows, img.cols);
+	for (int i = sz - 5; i >= 0; i -= 3) {
+		ll = reconstructImage(ll, allDecompositions.at(i - 2), allDecompositions.at(i - 1), allDecompositions.at(i));
+	}
 
-	Mat_<uchar> afisLLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisLHmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHHmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afissLLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
+	return ll;
+}
 
-	LLmat = LL(img);
-	HHmat = HH(img);
-	LHmat = LH(img);
-	HLmat = HL(img);
+int treshhold(int th, int step)
+{
+	th = th * exp(-step);
+	return th;
+}
 
-	afisLLmat = add128(LLmat);
-	afisHHmat = add128(HHmat);
-	afisLHmat = add128(LHmat);
-	afisHLmat = add128(HLmat);
-	afissLLmat = LLmat;
+Mat_<uchar> modifyContrast(Mat_<uchar> img) {
+	int imin = 0xffffff, imax = -0xffffff, outMax = 250, outMin = 10;
 
-	Mat_<uchar> afisLLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisLHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-
-	int th = 5;
-	afisLLmatTh = coef_to_0(afisLLmat, th);
-	afisHHmatTh = coef_to_0(afisHHmat, th);
-	afisLHmatTh = coef_to_0(afisLHmat, th);
-	afisHLmatTh = coef_to_0(afisHLmat, th);
-
-	Recmat = reconstructie_prelucrare(afisLLmat, afisLHmatTh, afisHLmatTh, afisHHmatTh);
-
-	Mat_<uchar> dif = Mat_<uchar>(img.rows, img.cols);
 	for (int i = 0; i < img.rows; i++) {
 		for (int j = 0; j < img.cols; j++) {
-			dif(i, j) = 255 - (img.at<uchar>(i, j) - Recmat(i, j));
+			//g in max/g in min
+			if (img(i, j) < imin) {
+				imin = img(i, j);
+			}
+			if (img(i, j) > imax) {
+				imax = img(i, j);
+			}
 		}
 	}
-
-	imshow("Dif", dif);
-
-	const char* ImgOr = "ImgOr"; //window for the source image
-	namedWindow(ImgOr, WINDOW_NORMAL);
-	imshow(ImgOr, img);
-
-
-	const char* HHMat = "HHmat"; //window for the source image
-	namedWindow(HHMat, WINDOW_NORMAL);
-
-	const char* LLMat = "LLmat"; //window for the source image
-	namedWindow(LLMat, WINDOW_NORMAL);
-
-	const char* LHMat = "LHmat"; //window for the source image
-	namedWindow(LHMat, WINDOW_NORMAL);
-
-	const char* HLMat = "HLmat"; //window for the source image
-	namedWindow(HLMat, WINDOW_NORMAL);
-
-	//imshow(HHMat, afisHHmat);
-	//imshow(LLMat, afissLLmat);
-	//imshow(LHMat, afisLHmat);
-	//imshow(HLMat, afisHLmat);
-
-	//cu threshold
-	imshow(HHMat, afisHHmatTh);
-	imshow(LLMat, afisLLmat);
-	imshow(LHMat, afisLHmatTh);
-	imshow(HLMat, afisHLmatTh);
-
-
-	const char* ImgRec = "ImgRec"; //window for the source image
-	namedWindow(ImgRec, WINDOW_NORMAL);
-	imshow(ImgRec, Recmat);
-	waitKey();
-}
-
-std::vector<Mat_<uchar>> deconstructionStack;
-
-void deconstruction(Mat img, int th) {
-
-	Mat_<uchar> LLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> LHmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> HLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> HHmat = Mat_<int>(img.rows / 2, img.cols / 2);
-
-	Mat_<uchar> LLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> LHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> HLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> HHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-
-	LLmat = LL(img);
-	HHmat = HH(img);
-	LHmat = LH(img);
-	HLmat = HL(img);
-
-	LLmatTh = coef_to_0(LLmat, th);
-	HHmatTh = coef_to_0(HHmat, th);
-	LHmatTh = coef_to_0(LHmat, th);
-	HLmatTh = coef_to_0(HLmat, th);
-
-	deconstructionStack.push_back(HHmatTh);
-	deconstructionStack.push_back(LHmatTh);
-	deconstructionStack.push_back(HLmatTh);
-	deconstructionStack.push_back(LLmatTh);
+	float decision = (float)(outMax - outMin) / (float)(imax - imin);
+	Mat_<uchar>contrast(img.rows, img.cols);
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			contrast(i, j) = outMin + (img(i, j) - imin) * decision;
+		}
+	}
+	return contrast;
 
 }
+
+int rowsReturn(int size)
+{
+	int rows;
+	if (size == 1)
+	{
+		rows = 128;
+	}
+	if (size == 2)
+	{
+		rows = 64;
+	}
+	if (size == 3)
+	{
+		rows = 32;
+	}
+	if (size == 4)
+	{
+		rows = 16;
+	}
+	if (size == 5)
+	{
+		rows = 8;
+	}
+	if (size == 6)
+	{
+		rows = 4;
+	}
+	if (size == 7)
+	{
+		rows = 2;
+	}
+	if (size == 8)
+	{
+		rows = 1;
+	}
+	return rows;
+}
+
+
+void display4Levels() {
+	char fname[MAX_PATH];
+	int th = 5;
+	int size = 6;
+	while (openFileDlg(fname))
+	{
+		Mat_<uchar> src = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
+		Mat_<uchar> scr_copy = src;
+		std::vector<Mat_<int>> finalImg;
+		imshow("Original", src);
+		for (int i = 0; i < size; i++) {
+			std::vector<Mat_<int>> results = divideIntoFourwithTh(src, th);
+			th = treshhold(th, i);
+			std::cout << th << std::endl;
+
+			Mat_<int> ll = results.at(0);
+			Mat_<int> lh = results.at(1);
+			Mat_<int> hl = results.at(2);
+			Mat_<int> hh = results.at(3);
+
+			/*
+			Mat_<uchar> pll = ll;
+			Mat_<uchar> plh = lh;
+			Mat_<uchar> phl = hl;
+			Mat_<uchar> phh = hh;
+			*/
+
+			finalImg.push_back(ll);
+			finalImg.push_back(lh);
+			finalImg.push_back(hl);
+			finalImg.push_back(hh);
+
+			src = ll;
+		}
+		Mat_<uchar> combineImg;
+		Mat_<uchar> reconstructed;
+		for (int i = finalImg.size() - 1; i >= 0; i -= 4) {
+			Mat_<int> pll = finalImg.at(i - 3);
+			Mat_<int> plh = finalImg.at(i - 2);
+			Mat_<int> phl = finalImg.at(i - 1);
+			Mat_<int> phh = finalImg.at(i);
+
+			int rows = rowsReturn(size);
+			if (pll.rows == rows) {
+				combineImg = combineImage(pll, modifyContrast(plh), modifyContrast(phl), modifyContrast(phh));
+			}
+			else {
+				combineImg = combineImage(combineImg, modifyContrast(plh), modifyContrast(phl), modifyContrast(phh));
+			}
+		}
+
+		imshow("256x256", combineImg);
+		for (int i = finalImg.size() - 1; i >= 0; i -= 4) {
+			Mat_<int> pll = finalImg.at(i - 3);
+			Mat_<int> plh = finalImg.at(i - 2);
+			Mat_<int> phl = finalImg.at(i - 1);
+			Mat_<int> phh = finalImg.at(i);
+
+			reconstructed = reconstructImage(pll, plh, phl, phh);
+			finalImg.at(i - 3) = reconstructed;
+		}
+		Mat_<uchar> difference = computeDifference(scr_copy, reconstructed);
+		imshow("diff", difference);
+		imshow("rec", reconstructed);
+		waitKey(0);
+	}
+}
+// result = [LH_128x128, HL_128x128, HH_128x128, LH_64x64, HL_64X64, HH_64X64, ...., LH_2X2, HL_2X2, HH_2X2, LL_2x2]
+// LL_2^n x 2^n -> LL_2^(n - 1), LH_2^(n - 1), HL_2^(n - 1), HH_2^(n - 1)
+
+
+
+
+// result = [LL_128x128,LH_128x128, HL_128x128, HH_128x128,LL_64x64, LH_64x64, HL_64X64, HH_64X64, ...., LL_16x16, LH_16X16, HL_16X16, HH_16X16]
+
+
+
+void testRecursiveReconstruction() {
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat_<uchar> src = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
+		std::vector<Mat_<int>> decompositions = recursiveDecomposition(src);
+		Mat_<int> finalImg = recursiveReconstruction(decompositions);
+		Mat_<uchar> reconstructed = finalImg;
+
+		imshow("Original", src);
+		imshow("Reconstruction", reconstructed);
+		waitKey(0);
+	}
+}
+
+
+void testDecomposition()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat_<uchar> src = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
+		std::vector<Mat_<int>> results = divideIntoFourwithTh(src, 1);
+		imshow("Original", src);
+
+		Mat_<int> ll = results.at(0);
+		Mat_<int> lh = results.at(1);
+		Mat_<int> hl = results.at(2);
+		Mat_<int> hh = results.at(3);
+		Mat_<uchar> reconstructed = reconstructImage(ll, lh, hl, hh);
+
+		Mat_<uchar> pll = ll;
+		Mat_<uchar> plh = lh;
+		Mat_<uchar> phl = hl;
+		Mat_<uchar> phh = hh;
+
+		imshow("Reconstruction", reconstructed);
+		imshow("LL", pll);
+		imshow("LH", add128(plh));
+		imshow("HL", add128(phl));
+		imshow("HH", add128(phh));
+
+		waitKey(0);
+	}
+}
+
+
+
+// se afiseaza src (original), imaginea reconstruita (dupa divizare recursiva si reconstructie recursiva)
+//		si imaginea diferenta returnata de functia de mai sus
+void testOriginalComparisonWithRes()
+{
+	char fname[MAX_PATH];
+	while (openFileDlg(fname))
+	{
+		Mat_<uchar> img = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
+		std::vector<Mat_<int>> decompositions = recursiveDecomposition(img);
+		Mat_<int> finalImg = recursiveReconstruction(decompositions);
+		Mat_<uchar> reconstructed = finalImg;
+		Mat_<uchar> dif = computeDifference(img, reconstructed);
+
+		imshow("Original", img);
+		imshow("Reconstruction", reconstructed);
+		imshow("Difference", dif);
+
+		waitKey(0);
+	}
+}
+
 
 
 void rle_encoding(Mat img) {
@@ -706,282 +664,48 @@ void rle_encode_w() {
 }
 
 
-void waveled2D_NSteps() {
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat img = imread(fname, IMREAD_GRAYSCALE);
-	int n;
-	std::cout << "How many times would u like to perform the deconstructon operation: ";
-	std::cin >> n;
-	std::cout << "\n";
-	int th = 20;
-	deconstructionStack.push_back(img);
-	for (int i = 0; i < n; i++) {
-		Mat_<uchar> LLmat = deconstructionStack.back();
-		deconstructionStack.pop_back();
-		th = th * (exp(-i));
-		deconstruction(LLmat, th);
-	}
-
-	std::string llName = "LL";
-	std::string lhName = "LH";
-	std::string hlName = "HL";
-	std::string hhName = "HH";
-
-	for (int i = 0; i < n; i++) {
-		Mat_<uchar> LLmat = deconstructionStack.back();
-		deconstructionStack.pop_back();
-		Mat_<uchar> HLmat = deconstructionStack.back();
-		deconstructionStack.pop_back();
-		Mat_<uchar> LHmat = deconstructionStack.back();
-		deconstructionStack.pop_back();
-		Mat_<uchar> HHmat = deconstructionStack.back();
-		deconstructionStack.pop_back();
-
-		llName = llName + std::to_string(i);
-		lhName = lhName + std::to_string(i);
-		hlName = hlName + std::to_string(i);
-		hhName = hhName + std::to_string(i);
-
-		namedWindow(llName, WINDOW_NORMAL);
-		imshow(llName, LLmat);
-
-		namedWindow(lhName, WINDOW_NORMAL);
-		imshow(lhName, LLmat);
-
-		namedWindow(hlName, WINDOW_NORMAL);
-		imshow(hlName, LLmat);
-
-		namedWindow(hhName, WINDOW_NORMAL);
-		imshow(hhName, LLmat);
-
-		Mat_<uchar> rec = reconstructie_prelucrare(LLmat, LHmat, HLmat, HHmat);
-		deconstructionStack.push_back(rec);
-	}
-	Mat_<uchar> reconstruction = deconstructionStack.back();
-
-	Mat_<uchar> dif = Mat_<uchar>(img.rows, img.cols);
-	for (int i = 0; i < img.rows; i++) {
-		for (int j = 0; j < img.cols; j++) {
-			dif(i, j) = 255 - (img.at<uchar>(i, j) - reconstruction(i, j));
-		}
-	}
-
-	std::cout << deconstructionStack.size();
-	deconstructionStack.clear();
-	imshow("Original", img);
-	imshow("Reconstruction", reconstruction);
-	imshow("Difference", dif);
-	waitKey(0);
 
 
-
-}
-
-void  wavelet2D_1()
-{
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat img = imread(fname, IMREAD_GRAYSCALE);
-	Mat_<uchar> afisInitMat = Mat_<uchar>(img.rows, img.cols);
-	std::vector<std::vector<Mat_<uchar>>> hMatrix;
-
-
-	Mat_<int> LLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> LHmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> HLmat = Mat_<int>(img.rows / 2, img.cols / 2);
-	Mat_<int> HHmat = Mat_<int>(img.rows / 2, img.cols / 2);
-
-	Mat_<uchar> Recmat = Mat_<uchar>(img.rows, img.cols);
-
-	Mat_<uchar> afisLLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisLHmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHHmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afissLLmat = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisLLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisLHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHLmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-	Mat_<uchar> afisHHmatTh = Mat_<uchar>(img.rows / 2, img.cols / 2);
-
-	int th = 10;
-
-
-	LLmat = LL(img);
-	HHmat = HH(img);
-	LHmat = LH(img);
-	HLmat = HL(img);
-
-
-	afisLLmatTh = coef_to_0(LLmat, th);
-	afisHHmatTh = coef_to_0(HHmat, th);
-	afisLHmatTh = coef_to_0(LHmat, th);
-	afisHLmatTh = coef_to_0(HLmat, th);
-
-	afisHHmat = add128(afisHHmatTh);
-	afisLHmat = add128(afisLHmatTh);
-	afisHLmat = add128(afisHLmatTh);
-	afissLLmat = LLmat;
-
-	Recmat = reconstructie_prelucrare(afisLLmatTh, afisLHmatTh, afisHLmatTh, afisHHmatTh);
-	std::vector<Mat_<uchar>> iter1;
-	//0 - hh, 1 - lh, 2-hl , 3 - ll
-	iter1.push_back(afisHHmat);
-	iter1.push_back(afisLHmat);
-	iter1.push_back(afisHLmat);
-	iter1.push_back(afisLLmat);
-	hMatrix.push_back(iter1);
-
-
-	Mat_<uchar> dif = Mat_<uchar>(img.rows, img.cols);
-	for (int i = 0; i < img.rows; i++) {
-		for (int j = 0; j < img.cols; j++) {
-			dif(i, j) = 255 - (img.at<uchar>(i, j) - Recmat(i, j));
-		}
-	}
-
-	imshow("Dif", dif);
-
-	const char* ImgOr = "ImgOr"; //window for the source image
-	namedWindow(ImgOr, WINDOW_NORMAL);
-	imshow(ImgOr, img);
-
-
-	const char* HHMat = "HHmat"; //window for the source image
-	namedWindow(HHMat, WINDOW_NORMAL);
-
-	const char* LLMat = "LLmat"; //window for the source image
-	namedWindow(LLMat, WINDOW_NORMAL);
-
-	const char* LHMat = "LHmat"; //window for the source image
-	namedWindow(LHMat, WINDOW_NORMAL);
-
-	const char* HLMat = "HLmat"; //window for the source image
-	namedWindow(HLMat, WINDOW_NORMAL);
-
-	//imshow(HHMat, afisHHmat);
-	//imshow(LLMat, afissLLmat);
-	//imshow(LHMat, afisLHmat);
-	//imshow(HLMat, afisHLmat);
-
-	//cu threshold
-	imshow(HHMat, afisHHmat);
-	imshow(LLMat, afissLLmat);
-	imshow(LHMat, afisLHmat);
-	imshow(HLMat, afisHLmat);
-
-
-	const char* ImgRec = "ImgRec"; //window for the source image
-	namedWindow(ImgRec, WINDOW_NORMAL);
-	imshow(ImgRec, Recmat);
-	waitKey();
-}
-
-
-double MeanSquareError(Mat_<uchar> original, Mat_<uchar> result)
-{
-	double mse = 0, mseFin = 0;
-	for (int i = 0; i < original.rows; i++)
-	{
-		for (int j = 0; j < original.cols; j++)
-		{
-			mse += abs(original[i][j] - result[i][j]);
-		}
-	}
-	mse /= (double)(original.rows * original.cols);
-	mseFin = sqrt(mse);
-	return mseFin;
-}
-
-
-
-void MSE()
-{
-	char fname[MAX_PATH];
-	openFileDlg(fname);
-	Mat_<uchar> img = imread(fname, IMREAD_GRAYSCALE);
-	Mat_<uchar> LLmat = LL(img);
-	Mat_<uchar> LHmat = LH(img);
-	Mat_<uchar> HLmat = HL(img);
-	Mat_<uchar> HHmat = HH(img);
-
-	int th = 50;
-
-	Mat_<uchar> LLmatCoef = coef_to_0(LLmat, th);
-	Mat_<uchar> LHmatCoef = coef_to_0(LHmat, th);
-	Mat_<uchar> HLmatCoef = coef_to_0(HLmat, th);
-	Mat_<uchar> HHmatCoef = coef_to_0(HHmat, th);
-
-	double mseLL = MeanSquareError(LLmat, LLmatCoef);
-	double mseLH = MeanSquareError(LHmat, LHmatCoef);
-	double mseHL = MeanSquareError(HLmat, HLmatCoef);
-	double mseHH = MeanSquareError(HHmat, HHmatCoef);
-
-	printf("Threshold: %d\n", th);
-	printf("LL mse: %f\n LH mse: %f\n HL mse: %f\n HH mse: %f\n", mseLL, mseLH, mseHL, mseHH);
-
-	Mat_<uchar> Recmat = reconstructie_prelucrare(LLmatCoef, LHmatCoef, HLmatCoef, HHmatCoef);
-	double mse = MeanSquareError(img, Recmat);
-
-	printf("MSE final = %f", mse);
-
-	imshow("Imagine", img);
-	waitKey(0);
-}
-
+// Se completeaza meniul cu fiecare noua functionalitate
 int main()
 {
 	int op;
 
-	do
-	{
-		system("cls");
+	do {
 		destroyAllWindows();
 		printf("Menu:\n");
-		printf(" 1 - Basic image opening...\n");
-		printf(" 2 - Open BMP images from folder\n");
-		printf(" 3 - Color to Gray\n");
-		printf(" 4 - Test Wavelet\n");
-		printf(" 5 - Wavelet1D\n");
-		printf(" 6 - Wavelet2D\n");
-		printf(" 7 - MSE\n");
-		printf(" 8 - Wavelet2D-NSteps\n");
-		printf(" 9 - RLE\n");
+		printf(" 1 - Decomposition & Reconstruction \n");
+		printf(" 2 - Recursive Reconstruction\n");
+		printf(" 3 - Recursive N Levels Decomposition \n");
+		printf(" 4 - Compare original to reconstructed\n");
+		printf(" 5 - Test RLE\n");
 
 		printf(" 0 - Exit\n\n");
 		printf("Option: ");
 		scanf("%d", &op);
-		switch (op)
-		{
+
+		switch (op) {
 		case 1:
-			testOpenImage();
+			testDecomposition();
 			break;
 		case 2:
-			testOpenImagesFld();
+			testRecursiveReconstruction();
 			break;
 		case 3:
-			testColor2Gray();
+			display4Levels();
 			break;
 		case 4:
-			testWavelet();
+			testOriginalComparisonWithRes();
 			break;
 		case 5:
-			wavelet1D();
-			break;
-		case 6:
-			wavelet2D_1();
-			break;
-		case 7:
-			MSE();
-			break;
-		case 8:
-			waveled2D_NSteps();
-			break;
-		case 9:
 			rle_encode_w();
 			break;
-		}
 
+
+		}
 	} while (op != 0);
+
+	getchar();
+
 	return 0;
 }

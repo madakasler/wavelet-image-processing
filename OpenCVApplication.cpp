@@ -10,7 +10,6 @@
 int hVec[2] = { 1, -1 };
 
 
-
 std::vector<int> getLowVector(std::vector<int> fullVector)
 {
 	std::vector<int> v;
@@ -24,6 +23,7 @@ std::vector<int> getLowVector(std::vector<int> fullVector)
 	return v;
 }
 
+
 std::vector<int> getHighVector(std::vector<int> fullVector)
 {
 	std::vector<int> v;
@@ -36,6 +36,30 @@ std::vector<int> getHighVector(std::vector<int> fullVector)
 
 	return v;
 }
+
+std::vector<int> getLow_USample(std::vector<int> vector_low)
+{
+	std::vector<int> low_usample;
+	int stop = 2 * vector_low.size();
+	for (int k = 0; k < stop; k++)
+	{
+		low_usample.push_back(vector_low.at(k / 2));
+	}
+	return low_usample;
+}
+
+std::vector<int> getHigh_USample(std::vector<int> vector_high)
+{
+	std::vector<int> high_usample;
+	int stop = 2 * vector_high.size();
+	for (int k = 0; k < stop; k++)
+	{
+		high_usample.push_back(vector_high.at(k / 2) * hVec[k % 2]);
+	}
+	return high_usample;
+}
+
+
 Mat_<int> coef_to_0(Mat_<int> img, int th) {
 	Mat_<int> dst(img.rows, img.cols);
 	for (int i = 0; i < img.rows; i++)
@@ -53,6 +77,95 @@ Mat_<int> coef_to_0(Mat_<int> img, int th) {
 	return dst;
 }
 
+Mat_<uchar> add128(Mat_<int> src) {
+	Mat_<uchar> dst(src.rows, src.cols);
+
+	for (int i = 0; i < src.rows; i++) {
+		for (int j = 0; j < src.rows; j++) {
+			dst(i, j) = (src(i, j) + 128) % 255;
+		}
+	}
+	return dst;
+}
+
+int treshhold(int th, int step)
+{
+	return th * exp(-step);
+}
+
+Mat_<uchar> modifyContrast(Mat_<int> img) {
+	int imin = 0xffffff, imax = -0xffffff, outMax = 250, outMin = 10;
+
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			//g in max/g in min
+			if (img(i, j) < imin) {
+				imin = img(i, j);
+			}
+			if (img(i, j) > imax) {
+				imax = img(i, j);
+			}
+		}
+	}
+	float decision = (float)(outMax - outMin) / (float)(imax - imin);
+	Mat_<uchar>contrast(img.rows, img.cols);
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			contrast(i, j) = outMin + (img(i, j) - imin) * decision;
+		}
+	}
+	return contrast;
+
+}
+
+int rowsReturn(int size)
+{
+	int rows;
+	if (size == 1)
+	{
+		rows = 128;
+	}
+	if (size == 2)
+	{
+		rows = 64;
+	}
+	if (size == 3)
+	{
+		rows = 32;
+	}
+	if (size == 4)
+	{
+		rows = 16;
+	}
+	if (size == 5)
+	{
+		rows = 8;
+	}
+	if (size == 6)
+	{
+		rows = 4;
+	}
+	if (size == 7)
+	{
+		rows = 2;
+	}
+	if (size == 8)
+	{
+		rows = 1;
+	}
+	return rows;
+}
+
+
+void window_imshow_int(std::string name, Mat_<int> img) {
+	namedWindow(name, WINDOW_NORMAL);
+	imshow(name, add128(img));
+}
+
+void window_imshow_uchar(std::string name, Mat_<uchar> img) {
+	namedWindow(name, WINDOW_NORMAL);
+	imshow(name, img);
+}
 
 // res -> (original - reconstruction) * 10 + 128
 Mat_<uchar> computeDifference(Mat_<uchar> original, Mat_<uchar> reconstruction)
@@ -68,6 +181,7 @@ Mat_<uchar> computeDifference(Mat_<uchar> original, Mat_<uchar> reconstruction)
 	//res = res * 10 + 128;
 	return res;
 }
+
 
 std::vector<Mat_<int>> divideIntoFour(Mat_<int> originalImage)
 {
@@ -168,8 +282,8 @@ std::vector<Mat_<int>> divideIntoFourwithTh(Mat_<int> originalImage, int th)
 	int rows = originalImage.rows;
 	int cols = originalImage.cols;
 
-	Mat_<float> l = Mat_<int>(rows / 2, cols);
-	Mat_<float> h = Mat_<int>(rows / 2, cols);
+	Mat_<int> l = Mat_<int>(rows / 2, cols);
+	Mat_<int> h = Mat_<int>(rows / 2, cols);
 
 	for (int c = 0; c < cols; c++)
 	{
@@ -192,10 +306,10 @@ std::vector<Mat_<int>> divideIntoFourwithTh(Mat_<int> originalImage, int th)
 		}
 	}
 
-	Mat_<float> ll = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> lh = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> hl = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> hh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<int> ll = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<int> lh = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<int> hl = Mat_<int>(rows / 2, cols / 2, 255);
+	Mat_<int> hh = Mat_<int>(rows / 2, cols / 2, 255);
 
 	for (int r = 0; r < rows / 2; r++)
 	{
@@ -239,47 +353,15 @@ std::vector<Mat_<int>> divideIntoFourwithTh(Mat_<int> originalImage, int th)
 			hh(r, c) = half1High.at(c);
 		}
 	}
-	Mat_<float> afisLLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> afisLHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> afisHLmatTh = Mat_<int>(rows / 2, cols / 2, 255);
-	Mat_<float> afisHHmatTh = Mat_<int>(rows / 2, cols / 2, 255);
-
-
-
-	afisHHmatTh = coef_to_0(hh, th);
-	afisLHmatTh = coef_to_0(lh, th);
-	afisHLmatTh = coef_to_0(hl, th);
 
 	results.push_back(ll);
-	results.push_back(afisLHmatTh);
-	results.push_back(afisHLmatTh);
-	results.push_back(afisHHmatTh);
-
+	results.push_back(coef_to_0(lh, th));
+	results.push_back(coef_to_0(hl, th));
+	results.push_back(coef_to_0(hh, th));
 
 	return results;
 }
 
-std::vector<int> getLow_USample(std::vector<int> vector_low)
-{
-	std::vector<int> low_usample;
-	int stop = 2 * vector_low.size();
-	for (int k = 0; k < stop; k++)
-	{
-		low_usample.push_back(vector_low.at(k / 2));
-	}
-	return low_usample;
-}
-
-std::vector<int> getHigh_USample(std::vector<int> vector_high)
-{
-	std::vector<int> high_usample;
-	int stop = 2 * vector_high.size();
-	for (int k = 0; k < stop; k++)
-	{
-		high_usample.push_back(vector_high.at(k / 2) * hVec[k % 2]);
-	}
-	return high_usample;
-}
 
 Mat_<uchar> reconstructImage(Mat_<int> ll, Mat_<int> lh, Mat_<int> hl, Mat_<int> hh)
 {
@@ -348,7 +430,6 @@ Mat_<uchar> reconstructImage(Mat_<int> ll, Mat_<int> lh, Mat_<int> hl, Mat_<int>
 }
 
 
-
 Mat_<uchar> combineImage(Mat_<uchar> ll, Mat_<uchar> lh, Mat_<uchar> hl, Mat_<uchar> hh) {
 
 	Mat_<uchar> result(ll.rows * 2, ll.cols * 2);
@@ -359,16 +440,7 @@ Mat_<uchar> combineImage(Mat_<uchar> ll, Mat_<uchar> lh, Mat_<uchar> hl, Mat_<uc
 
 	return result;
 }
-Mat_<uchar> add128(Mat_<int> src) {
-	Mat_<uchar> dst(src.rows, src.cols);
 
-	for (int i = 0; i < src.rows; i++) {
-		for (int j = 0; j < src.rows; j++) {
-			dst(i, j) = (src(i, j) + 128) % 255;
-		}
-	}
-	return dst;
-}
 
 
 std::vector<Mat_<int>> recursiveDecomposition(Mat_<int> orig)
@@ -394,7 +466,7 @@ std::vector<Mat_<int>> recursiveDecomposition(Mat_<int> orig)
 // LL_4x4 = reconstructImage(LL_2x2, LH_2x2, HL_2x2, HH_2x2)
 // ...
 // LL_2^n = reconstructImage(LL_2^(n - 1), LH_2^(n - 1), HL_2^(n - 1), HH_2^(n - 1))
-Mat_<int> recursiveReconstruction(std::vector<Mat_<int>> allDecompositions)
+Mat_<uchar> recursiveReconstruction(std::vector<Mat_<int>> allDecompositions)
 {
 
 	int sz = allDecompositions.size();
@@ -407,102 +479,27 @@ Mat_<int> recursiveReconstruction(std::vector<Mat_<int>> allDecompositions)
 	return ll;
 }
 
-int treshhold(int th, int step)
-{
-	th = th * exp(-step);
-	return th;
-}
-
-Mat_<uchar> modifyContrast(Mat_<uchar> img) {
-	int imin = 0xffffff, imax = -0xffffff, outMax = 250, outMin = 10;
-
-	for (int i = 0; i < img.rows; i++) {
-		for (int j = 0; j < img.cols; j++) {
-			//g in max/g in min
-			if (img(i, j) < imin) {
-				imin = img(i, j);
-			}
-			if (img(i, j) > imax) {
-				imax = img(i, j);
-			}
-		}
-	}
-	float decision = (float)(outMax - outMin) / (float)(imax - imin);
-	Mat_<uchar>contrast(img.rows, img.cols);
-	for (int i = 0; i < img.rows; i++) {
-		for (int j = 0; j < img.cols; j++) {
-			contrast(i, j) = outMin + (img(i, j) - imin) * decision;
-		}
-	}
-	return contrast;
-
-}
-
-int rowsReturn(int size)
-{
-	int rows;
-	if (size == 1)
-	{
-		rows = 128;
-	}
-	if (size == 2)
-	{
-		rows = 64;
-	}
-	if (size == 3)
-	{
-		rows = 32;
-	}
-	if (size == 4)
-	{
-		rows = 16;
-	}
-	if (size == 5)
-	{
-		rows = 8;
-	}
-	if (size == 6)
-	{
-		rows = 4;
-	}
-	if (size == 7)
-	{
-		rows = 2;
-	}
-	if (size == 8)
-	{
-		rows = 1;
-	}
-	return rows;
-}
-
 
 void display4Levels() {
 	char fname[MAX_PATH];
-	int th = 5;
-	int size = 6;
+	int initialTh = 5;
+	int levels = 4;
 	while (openFileDlg(fname))
 	{
 		Mat_<uchar> src = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
-		Mat_<uchar> scr_copy = src;
+		Mat_<uchar> scr_copy = src.clone();
 		std::vector<Mat_<int>> finalImg;
 		imshow("Original", src);
-		for (int i = 0; i < size; i++) {
-			std::vector<Mat_<int>> results = divideIntoFourwithTh(src, th);
-			th = treshhold(th, i);
+		for (int i = 0; i < levels; i++) {
+			int th = treshhold(initialTh, i);
 			std::cout << th << std::endl;
+
+			std::vector<Mat_<int>> results = divideIntoFourwithTh(src, th);
 
 			Mat_<int> ll = results.at(0);
 			Mat_<int> lh = results.at(1);
 			Mat_<int> hl = results.at(2);
 			Mat_<int> hh = results.at(3);
-
-			/*
-			Mat_<uchar> pll = ll;
-			Mat_<uchar> plh = lh;
-			Mat_<uchar> phl = hl;
-			Mat_<uchar> phh = hh;
-			*/
 
 			finalImg.push_back(ll);
 			finalImg.push_back(lh);
@@ -519,7 +516,7 @@ void display4Levels() {
 			Mat_<int> phl = finalImg.at(i - 1);
 			Mat_<int> phh = finalImg.at(i);
 
-			int rows = rowsReturn(size);
+			int rows = rowsReturn(levels);
 			if (pll.rows == rows) {
 				combineImg = combineImage(pll, modifyContrast(plh), modifyContrast(phl), modifyContrast(phh));
 			}
@@ -528,7 +525,8 @@ void display4Levels() {
 			}
 		}
 
-		imshow("256x256", combineImg);
+		window_imshow_uchar("all levels", combineImg);
+
 		for (int i = finalImg.size() - 1; i >= 0; i -= 4) {
 			Mat_<int> pll = finalImg.at(i - 3);
 			Mat_<int> plh = finalImg.at(i - 2);
@@ -538,8 +536,9 @@ void display4Levels() {
 			reconstructed = reconstructImage(pll, plh, phl, phh);
 			finalImg.at(i - 3) = reconstructed;
 		}
+
 		Mat_<uchar> difference = computeDifference(scr_copy, reconstructed);
-		imshow("diff", difference);
+		window_imshow_uchar("diff", difference);
 		imshow("rec", reconstructed);
 		waitKey(0);
 	}
@@ -590,11 +589,11 @@ void testDecomposition()
 		Mat_<uchar> phl = hl;
 		Mat_<uchar> phh = hh;
 
-		imshow("Reconstruction", reconstructed);
-		imshow("LL", pll);
-		imshow("LH", add128(plh));
-		imshow("HL", add128(phl));
-		imshow("HH", add128(phh));
+		window_imshow_uchar("Reconstruction", reconstructed);
+		window_imshow_uchar("LL", pll);
+		window_imshow_uchar("LH", add128(plh));
+		window_imshow_uchar("HL", add128(phl));
+		window_imshow_uchar("HH", add128(phh));
 
 		waitKey(0);
 	}

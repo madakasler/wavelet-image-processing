@@ -465,11 +465,12 @@ void display4Levels() {
 	while (openFileDlg(fname))
 	{
 		Mat_<uchar> src = imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
+		Mat_<int> img = src.clone();
 		std::vector<Mat_<int>> finalImg;
 		imshow("Original", src);
 		for (int i = 0; i < size; i++) {
 			th = treshhold(th, i);
-			std::vector<Mat_<int>> results = divideIntoFourwithTh(src, th);
+			std::vector<Mat_<int>> results = divideIntoFourwithTh(img, th);
 			std::cout << th << std::endl;
 
 			Mat_<int> ll = results.at(0);
@@ -477,17 +478,12 @@ void display4Levels() {
 			Mat_<int> hl = results.at(2);
 			Mat_<int> hh = results.at(3);
 
-			Mat_<uchar> pll = ll;
-			Mat_<uchar> plh = lh;
-			Mat_<uchar> phl = hl;
-			Mat_<uchar> phh = hh;
+			finalImg.push_back(ll);
+			finalImg.push_back(lh);
+			finalImg.push_back(hl);
+			finalImg.push_back(hh);
 
-			finalImg.push_back(pll);
-			finalImg.push_back(plh);
-			finalImg.push_back(phl);
-			finalImg.push_back(phh);
-
-			src = pll;
+			img = ll;
 		}
 		Mat_<uchar> combineImg;
 		Mat_<uchar> reconstructed;
@@ -510,10 +506,10 @@ void display4Levels() {
 
 		window_imshow_uchar("256x256", combineImg);
 		for (int i = finalImg.size() - 1; i >= 0; i -= 4) {
-			Mat_<uchar> pll = finalImg.at(i - 3);
-			Mat_<uchar> plh = finalImg.at(i - 2);
-			Mat_<uchar> phl = finalImg.at(i - 1);
-			Mat_<uchar> phh = finalImg.at(i);
+			Mat_<int> pll = finalImg.at(i - 3);
+			Mat_<int> plh = finalImg.at(i - 2);
+			Mat_<int> phl = finalImg.at(i - 1);
+			Mat_<int> phh = finalImg.at(i);
 			reconstructed = reconstructImage(pll, plh, phl, phh);
 			finalImg.at(i - 3) = reconstructed;
 		}
